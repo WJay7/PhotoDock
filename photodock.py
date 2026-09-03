@@ -144,10 +144,9 @@ class PhotoDock(tk.Tk):
                 if source_file.stat().st_size == 0:
                     continue
                 digest = sha256_file(source_file)
-                exists = self.db.execute("SELECT 1 FROM photos WHERE hash=?", (digest,)).fetchone()
-                if not exists:
-                    exists = self.db.execute("SELECT 1 FROM photos WHERE path IN (SELECT path FROM photos)").fetchone() if False else None
-                if exists:
+                record = self.db.execute("SELECT path FROM photos WHERE hash=?", (digest,)).fetchone()
+                destination_file_exists = record and Path(record[0]).is_file()
+                if destination_file_exists:
                     skipped += 1
                 else:
                     if organize_by_date:
@@ -165,9 +164,11 @@ class PhotoDock(tk.Tk):
                         temp.unlink(missing_ok=True)
                         raise IOError("复制校验失败")
                     temp.replace(target)
-                    self.db.execute("INSERT OR IGNORE INTO photos(hash,path,imported_at) VALUES(?,?,?)", (digest, str(target), datetime.now().isoformat(timespec="seconds")))
+                    self.db.execute("INSERT OR REPLACE INTO photos(hash,path,imported_at) VALUES(?,?,?)", (digest, str(target), datetime.now().isoformat(timespec="seconds")))
                     self.db.commit()
                     imported += 1
+                    if record:
+                        self._ui(lambda p=str(source_file): self._write_log(f"已恢复缺失照片：{p}"))
             except Exception as exc:
                 failed += 1
                 self._ui(lambda e=str(exc), p=str(source_file): self._write_log(f"失败：{p}（{e}）"))
