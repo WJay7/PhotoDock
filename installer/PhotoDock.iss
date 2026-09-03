@@ -20,7 +20,7 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 使用 Inno Setup Runner 自带语言文件，避免精简安装包缺少中文语言包导致编译失败。
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
