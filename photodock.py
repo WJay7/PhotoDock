@@ -36,6 +36,7 @@ class PhotoDock(tk.Tk):
         self.db.commit()
         self.running = False
         self.auto_scan = tk.BooleanVar(value=True)
+        self.organize_by_date = tk.BooleanVar(value=True)
         self.source_var = tk.StringVar()
         self.destination_var = tk.StringVar()
         self.status_var = tk.StringVar(value="请选择照片来源和保存位置")
@@ -52,11 +53,12 @@ class PhotoDock(tk.Tk):
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
                 self.source_var.set(data.get("source", ""))
                 self.destination_var.set(data.get("destination", ""))
+                self.organize_by_date.set(data.get("organize_by_date", True))
             except (OSError, json.JSONDecodeError):
                 pass
 
     def _save_config(self):
-        CONFIG_FILE.write_text(json.dumps({"source": self.source_var.get(), "destination": self.destination_var.get()}, ensure_ascii=False, indent=2), encoding="utf-8")
+        CONFIG_FILE.write_text(json.dumps({"source": self.source_var.get(), "destination": self.destination_var.get(), "organize_by_date": self.organize_by_date.get()}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _build_ui(self):
         self.columnconfigure(0, weight=1)
@@ -75,6 +77,7 @@ class PhotoDock(tk.Tk):
         controls.grid(row=2, column=0, sticky="ew", padx=24, pady=8)
         ttk.Button(controls, text="立即扫描并导入", command=self.start_import).pack(side="left")
         ttk.Checkbutton(controls, text="设备连接后自动导入", variable=self.auto_scan).pack(side="left", padx=18)
+        ttk.Checkbutton(controls, text="按日期归档", variable=self.organize_by_date, command=self._save_config).pack(side="left", padx=4)
         ttk.Label(controls, textvariable=self.status_var).pack(side="right")
         task = ttk.LabelFrame(self, text="导入进度")
         task.grid(row=3, column=0, sticky="nsew", padx=24, pady=8)
@@ -130,9 +133,9 @@ class PhotoDock(tk.Tk):
         self._save_config()
         self.running = True
         self.progress_var.set(0)
-        threading.Thread(target=self._import_worker, args=(source, destination), daemon=True).start()
+        threading.Thread(target=self._import_worker, args=(source, destination, self.organize_by_date.get()), daemon=True).start()
 
-    def _import_worker(self, source, destination):
+    def _import_worker(self, source, destination, organize_by_date):
         files = [p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
         self._ui(lambda: self.status_var.set(f"扫描到 {len(files)} 张照片"))
         imported = skipped = failed = 0
@@ -147,8 +150,11 @@ class PhotoDock(tk.Tk):
                 if exists:
                     skipped += 1
                 else:
-                    day = datetime.fromtimestamp(source_file.stat().st_mtime)
-                    folder = destination / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
+                    if organize_by_date:
+                        day = datetime.fromtimestamp(source_file.stat().st_mtime)
+                        folder = destination / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
+                    else:
+                        folder = destination
                     folder.mkdir(parents=True, exist_ok=True)
                     target = folder / source_file.name
                     if target.exists():
