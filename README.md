@@ -21,7 +21,7 @@ python photodock.py
 
 ## 构建安装程序
 
-GitHub Actions 会在手动运行或推送 `v*.*.*` 标签时自动构建 Windows 安装包。打开仓库的 **Actions → Build Windows installer → Run workflow**，完成后在运行记录的 Artifacts 下载 `PhotoDock-Windows`。
+GitHub Actions 会在手动运行或推送 `v*.*.*` 标签时自动构建 Windows 安装包。手动运行后，可在运行记录的 Artifacts 下载 `PhotoDock-Windows`；推送版本标签后，构建完成会自动创建 GitHub Release，并把 `PhotoDock-Setup.exe` 附在发行版下载区。
 
 如果本机安装了 [Inno Setup](https://jrsoftware.org/isinfo.php)，也可以执行：
 
