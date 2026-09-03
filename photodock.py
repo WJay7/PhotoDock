@@ -30,6 +30,8 @@ class PhotoDock(tk.Tk):
         self.title("PhotoDock")
         self.geometry("760x520")
         self.minsize(640, 420)
+        self.configure(bg="#F5F8FF")
+        self._set_pixel_icon()
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(DB_FILE, check_same_thread=False)
         self.db.execute("CREATE TABLE IF NOT EXISTS photos (hash TEXT PRIMARY KEY, path TEXT NOT NULL, imported_at TEXT NOT NULL)")
@@ -61,9 +63,24 @@ class PhotoDock(tk.Tk):
         CONFIG_FILE.write_text(json.dumps({"source": self.source_var.get(), "destination": self.destination_var.get(), "organize_by_date": self.organize_by_date.get()}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _build_ui(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("TFrame", background="#F5F8FF")
+        style.configure("TLabelframe", background="#FFFFFF", bordercolor="#D8E4FF", relief="solid")
+        style.configure("TLabelframe.Label", background="#FFFFFF", foreground="#173B78", font=("Segoe UI", 10, "bold"))
+        style.configure("TLabel", background="#F5F8FF", foreground="#173B78")
+        style.configure("Header.TLabel", background="#F5F8FF", foreground="#1464F4", font=("Segoe UI", 24, "bold"))
+        style.configure("Subheader.TLabel", background="#F5F8FF", foreground="#6680A8", font=("Segoe UI", 10))
+        style.configure("TButton", padding=(14, 8), foreground="#FFFFFF", background="#1464F4", borderwidth=0, font=("Segoe UI", 10, "bold"))
+        style.map("TButton", background=[("active", "#0B54D6"), ("disabled", "#A9BFEF")])
+        style.configure("TCheckbutton", background="#F5F8FF", foreground="#315486", font=("Segoe UI", 9))
+        style.configure("Horizontal.TProgressbar", troughcolor="#DCE8FF", background="#1464F4", bordercolor="#DCE8FF", lightcolor="#1464F4", darkcolor="#1464F4")
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
-        ttk.Label(self, text="PhotoDock", font=("Segoe UI", 22, "bold")).grid(row=0, column=0, sticky="w", padx=24, pady=(20, 8))
+        heading = ttk.Frame(self)
+        heading.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 4))
+        ttk.Label(heading, text="PhotoDock", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(heading, text="让每一张照片，都自动回到正确的位置", style="Subheader.TLabel").pack(anchor="w", pady=(2, 0))
         paths = ttk.LabelFrame(self, text="文件夹设置")
         paths.grid(row=1, column=0, sticky="ew", padx=24, pady=8)
         paths.columnconfigure(1, weight=1)
@@ -86,7 +103,28 @@ class PhotoDock(tk.Tk):
         ttk.Progressbar(task, variable=self.progress_var, maximum=100).grid(row=0, column=0, sticky="ew", padx=14, pady=12)
         self.log = tk.Text(task, height=12, state="disabled", wrap="word")
         self.log.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
-        ttk.Label(self, text="重复照片按 SHA-256 内容指纹跳过；文件按导入日期归档。", foreground="#666").grid(row=4, column=0, sticky="w", padx=24, pady=(0, 18))
+        ttk.Label(self, text="重复照片按 SHA-256 内容指纹跳过；设置会自动保存。", foreground="#6680A8").grid(row=4, column=0, sticky="w", padx=24, pady=(0, 18))
+
+    def _set_pixel_icon(self):
+        """Create a small pixel-art camera icon without an external image dependency."""
+        icon = tk.PhotoImage(width=32, height=32)
+        rows = [
+            "                                ", "                                ", "            ##      ##          ",
+            "          ####    ####         ", "        ################        ", "      ####################      ",
+            "    ######            ######    ", "   ####                  ####   ", "  ####      ######        ####  ",
+            " ####      ##########        ####", "####      ####      ####        ####", "####     ###  ####  ###         ####",
+            "####     ###   ##   ###         ####", "####     ###        ###         ####", "####      ####    ####          ####",
+            " ####       ########           #### ", "  ####                      ####  ", "   ####                  ####    ",
+            "    ######            ######    ", "      ####################      ", "        ################        ",
+            "          ############          ", "            ########            ", "                                ",
+        ]
+        # Scale the 24x32 pattern vertically to fill the icon; transparent pixels stay empty.
+        colors = {"#": "#1464F4", " ": "#F5F8FF"}
+        for y, row in enumerate(rows):
+            row = row[:32].ljust(32)
+            icon.put("{" + " ".join(colors.get(c, "#F5F8FF") for c in row) + "}", to=(0, y + 4))
+        self.iconphoto(True, icon)
+        self._icon = icon
 
     def _first_run_setup(self):
         self._choose_source()
