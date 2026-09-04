@@ -18,10 +18,8 @@ jobs:
       - name: Build executable
         run: |
           python -m pip install --upgrade pip pyinstaller pillow pystray
-          choco install inkscape --no-progress -y
-          inkscape assets\photodock-camera.svg --export-type=png --export-filename=assets\photodock-camera.png --export-width=256 --export-height=256
           python scripts\create_icon.py
-          pyinstaller --noconfirm --onefile --windowed --icon assets\photodock.ico --name PhotoDock photodock.py
+          pyinstaller --noconfirm --onefile --windowed --icon assets\photodock.ico --add-data "assets\photodock-32.ico;assets" --name PhotoDock photodock.py
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
       - name: Build installer

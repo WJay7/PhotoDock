@@ -10,6 +10,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import ctypes
+import sys
 try:
     import pystray
     from PIL import Image, ImageDraw
@@ -136,13 +137,8 @@ class PhotoDock(tk.Tk):
         ttk.Label(content, text="PhotoDock 会记住你的设置。重复照片按内容指纹跳过。", foreground="#6B7280").grid(row=4, column=0, sticky="w", padx=28, pady=(0, 18))
 
     def _tray_image(self):
-        image = Image.new("RGBA", (64, 64), "#1769E8")
-        draw = ImageDraw.Draw(image)
-        draw.rectangle((12, 22, 52, 52), fill="white")
-        draw.rectangle((23, 15, 41, 23), fill="white")
-        draw.rectangle((21, 28, 43, 46), fill="#1769E8")
-        draw.rectangle((25, 32, 39, 42), fill="#75B5FF")
-        return image
+        root = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+        return Image.open(root / "assets" / "photodock-32.ico").convert("RGBA")
 
     def _start_tray(self):
         menu = pystray.Menu(
