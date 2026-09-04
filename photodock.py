@@ -38,7 +38,7 @@ class PhotoDock(tk.Tk):
         self.geometry("900x600")
         self.minsize(760, 520)
         self.configure(bg="#F2F4F7")
-        self._set_pixel_icon()
+        self._set_app_icon()
         self._tray = None
         self._tray_thread = None
         self._single_instance = ctypes.windll.kernel32.CreateMutexW(None, True, "PhotoDock.SingleInstance") if os.name == "nt" else None
@@ -168,26 +168,10 @@ class PhotoDock(tk.Tk):
             self._tray.stop()
         self.after(0, self.destroy)
 
-    def _set_pixel_icon(self):
-        """Create a small pixel-art camera icon without an external image dependency."""
-        icon = tk.PhotoImage(width=32, height=32)
-        rows = [
-            "                                ", "                                ", "            ##      ##          ",
-            "          ####    ####         ", "        ################        ", "      ####################      ",
-            "    ######            ######    ", "   ####                  ####   ", "  ####      ######        ####  ",
-            " ####      ##########        ####", "####      ####      ####        ####", "####     ###  ####  ###         ####",
-            "####     ###   ##   ###         ####", "####     ###        ###         ####", "####      ####    ####          ####",
-            " ####       ########           #### ", "  ####                      ####  ", "   ####                  ####    ",
-            "    ######            ######    ", "      ####################      ", "        ################        ",
-            "          ############          ", "            ########            ", "                                ",
-        ]
-        # Scale the 24x32 pattern vertically to fill the icon; transparent pixels stay empty.
-        colors = {"#": "#1769E8", " ": "#F2F4F7"}
-        for y, row in enumerate(rows):
-            row = row[:32].ljust(32)
-            icon.put("{" + " ".join(colors.get(c, "#F5F8FF") for c in row) + "}", to=(0, y + 4))
-        self.iconphoto(True, icon)
-        self._icon = icon
+    def _set_app_icon(self):
+        """Load the supplied multi-size ICO for the taskbar and window."""
+        root = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+        self.iconbitmap(default=str(root / "assets" / "photodock.ico"))
 
     def _first_run_setup(self):
         self._choose_source()
