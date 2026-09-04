@@ -9,6 +9,11 @@ from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+except ImportError:
+    pystray = None
 
 APP_DIR = Path(os.environ.get("APPDATA", Path.home())) / "PhotoDock"
 CONFIG_FILE = APP_DIR / "config.json"
@@ -45,6 +50,11 @@ class PhotoDock(tk.Tk):
         self.progress_var = tk.DoubleVar(value=0)
         self._load_config()
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
+        self._tray = None
+        self._tray_thread = None
+        if pystray is not None:
+            self._start_tray()
         self.after(1000, self._poll_source)
         if not self.source_var.get() or not self.destination_var.get():
             self.after(300, self._first_run_setup)
@@ -104,6 +114,43 @@ class PhotoDock(tk.Tk):
         self.log = tk.Text(task, height=12, state="disabled", wrap="word")
         self.log.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         ttk.Label(self, text="PhotoDock 会记住你的设置。重复照片按内容指纹跳过。", foreground="#6B7280").grid(row=4, column=0, sticky="w", padx=24, pady=(0, 18))
+
+    def _tray_image(self):
+        image = Image.new("RGBA", (64, 64), "#1769E8")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((12, 22, 52, 52), fill="white")
+        draw.rectangle((23, 15, 41, 23), fill="white")
+        draw.rectangle((21, 28, 43, 46), fill="#1769E8")
+        draw.rectangle((25, 32, 39, 42), fill="#75B5FF")
+        return image
+
+    def _start_tray(self):
+        menu = pystray.Menu(
+            pystray.MenuItem("打开 PhotoDock", lambda icon, item: self._restore_from_tray()),
+            pystray.MenuItem("立即扫描并导入", lambda icon, item: self._tray_import()),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出程序", lambda icon, item: self._quit_from_tray()),
+        )
+        self._tray = pystray.Icon("PhotoDock", self._tray_image(), "PhotoDock - 照片自动导入", menu)
+        self._tray_thread = threading.Thread(target=self._tray.run, daemon=True)
+        self._tray_thread.start()
+
+    def _tray_import(self):
+        self.after(0, self.start_import)
+
+    def _hide_to_tray(self):
+        if pystray is None:
+            self.destroy()
+            return
+        self.withdraw()
+
+    def _restore_from_tray(self):
+        self.after(0, lambda: (self.deiconify(), self.lift(), self.focus_force()))
+
+    def _quit_from_tray(self):
+        if self._tray is not None:
+            self._tray.stop()
+        self.after(0, self.destroy)
 
     def _set_pixel_icon(self):
         """Create a small pixel-art camera icon without an external image dependency."""
@@ -219,6 +266,11 @@ class PhotoDock(tk.Tk):
         self.after(0, callback)
 
     def destroy(self):
+        if self._tray is not None:
+            try:
+                self._tray.stop()
+            except Exception:
+                pass
         self.db.close()
         super().destroy()
 
