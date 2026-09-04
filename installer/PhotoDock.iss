@@ -8,6 +8,7 @@ AppId={{9C2B4A14-3A4F-4FCB-9D8E-4D1EAB5E7A21}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+SetupIconFile=..\assets\photodock.ico
 DefaultDirName={autopf}\PhotoDock
 DefaultGroupName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -30,8 +31,8 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "..\dist\PhotoDock.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PhotoDock"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\PhotoDock"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\PhotoDock"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\PhotoDock"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 PhotoDock"; Flags: nowait postinstall skipifsilent
