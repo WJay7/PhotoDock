@@ -8,12 +8,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 import ctypes
 import sys
 try:
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image
 except ImportError:
     pystray = None
 
@@ -21,6 +22,9 @@ APP_DIR = Path(os.environ.get("APPDATA", Path.home())) / "PhotoDock"
 CONFIG_FILE = APP_DIR / "config.json"
 DB_FILE = APP_DIR / "photodock.db"
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".rw2", ".orf"}
+APP_USER_MODEL_ID = "WJay7.PhotoDock"
+FONT_FAMILY = "MiSans ExtraLight"
+FONT_FALLBACK = "Microsoft YaHei UI"
 
 
 def sha256_file(path: Path, chunk_size=1024 * 1024):
@@ -33,11 +37,21 @@ def sha256_file(path: Path, chunk_size=1024 * 1024):
 
 class PhotoDock(tk.Tk):
     def __init__(self):
+        # Windows decides the taskbar icon before Tk creates its top-level
+        # window.  Giving PhotoDock its own ID here prevents it from being
+        # grouped with Python/Tk's generic icon or an older pinned shortcut.
+        if os.name == "nt":
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+            except (AttributeError, OSError):
+                pass
         super().__init__()
         self.title("PhotoDock")
         self.geometry("900x600")
         self.minsize(760, 520)
         self.configure(bg="#F2F4F7")
+        self._font_family = self._resolve_font_family()
+        self._configure_default_fonts()
         self._set_app_icon()
         self._tray = None
         self._tray_thread = None
@@ -67,6 +81,34 @@ class PhotoDock(tk.Tk):
         if not self.source_var.get() or not self.destination_var.get():
             self.after(300, self._first_run_setup)
 
+    def _resolve_font_family(self):
+        """Use MiSans ExtraLight when installed, with a Chinese-capable fallback."""
+        installed = set(tkfont.families(self))
+        if FONT_FAMILY in installed:
+            return FONT_FAMILY
+        if FONT_FALLBACK in installed:
+            return FONT_FALLBACK
+        return "Segoe UI"
+
+    def _font(self, size):
+        return (self._font_family, size, "normal")
+
+    def _configure_default_fonts(self):
+        # This also covers standard Tk controls such as dialogs and any text
+        # widgets that do not carry a dedicated ttk style.
+        for name, size in {
+            "TkDefaultFont": 10,
+            "TkTextFont": 10,
+            "TkMenuFont": 10,
+            "TkHeadingFont": 10,
+            "TkCaptionFont": 10,
+            "TkSmallCaptionFont": 9,
+        }.items():
+            try:
+                tkfont.nametofont(name).configure(family=self._font_family, size=size, weight="normal")
+            except tk.TclError:
+                pass
+
     def _load_config(self):
         if CONFIG_FILE.exists():
             try:
@@ -85,25 +127,26 @@ class PhotoDock(tk.Tk):
         style.theme_use("clam")
         style.configure("TFrame", background="#F2F4F7")
         style.configure("TLabelframe", background="#FFFFFF", bordercolor="#D8E4FF", relief="solid")
-        style.configure("TLabelframe.Label", background="#FFFFFF", foreground="#173B78", font=("Segoe UI", 10, "bold"))
-        style.configure("TLabel", background="#F2F4F7", foreground="#374151")
-        style.configure("Header.TLabel", background="#F2F4F7", foreground="#1769E8", font=("Segoe UI", 22, "bold"))
-        style.configure("Subheader.TLabel", background="#F2F4F7", foreground="#6B7280", font=("Segoe UI", 10))
-        style.configure("TButton", padding=(14, 8), foreground="#FFFFFF", background="#1464F4", borderwidth=0, font=("Segoe UI", 10, "bold"))
+        style.configure("TLabelframe.Label", background="#FFFFFF", foreground="#173B78", font=self._font(10))
+        style.configure("TLabel", background="#F2F4F7", foreground="#374151", font=self._font(10))
+        style.configure("TEntry", padding=(7, 5), font=self._font(10))
+        style.configure("Header.TLabel", background="#F2F4F7", foreground="#1769E8", font=self._font(24))
+        style.configure("Subheader.TLabel", background="#F2F4F7", foreground="#6B7280", font=self._font(10))
+        style.configure("TButton", padding=(14, 8), foreground="#FFFFFF", background="#1464F4", borderwidth=0, font=self._font(10))
         style.map("TButton", background=[("active", "#0B54D6"), ("disabled", "#A9BFEF")])
-        style.configure("TCheckbutton", background="#F2F4F7", foreground="#4B5563", font=("Segoe UI", 9))
+        style.configure("TCheckbutton", background="#F2F4F7", foreground="#4B5563", font=self._font(10))
         style.configure("Horizontal.TProgressbar", troughcolor="#DCE8FF", background="#1464F4", bordercolor="#DCE8FF", lightcolor="#1464F4", darkcolor="#1464F4")
         self.columnconfigure(1, weight=1)
         self.rowconfigure(3, weight=1)
         sidebar = tk.Frame(self, bg="#1769E8", width=190)
         sidebar.grid(row=0, column=0, rowspan=5, sticky="nsew")
         sidebar.grid_propagate(False)
-        tk.Label(sidebar, text="▣  PhotoDock", bg="#1769E8", fg="white", font=("Segoe UI", 18, "bold")).pack(anchor="w", padx=20, pady=(28, 6))
-        tk.Label(sidebar, text="照片自动导入", bg="#1769E8", fg="#DDEAFF", font=("Segoe UI", 10)).pack(anchor="w", padx=22)
+        tk.Label(sidebar, text="▣  PhotoDock", bg="#1769E8", fg="white", font=self._font(20)).pack(anchor="w", padx=20, pady=(28, 6))
+        tk.Label(sidebar, text="照片自动导入", bg="#1769E8", fg="#DDEAFF", font=self._font(10)).pack(anchor="w", padx=22)
         tk.Frame(sidebar, bg="#4B91F5", height=1).pack(fill="x", padx=20, pady=24)
-        tk.Label(sidebar, text="工作区", bg="#1769E8", fg="#BFD7FF", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=22, pady=(0, 10))
-        tk.Label(sidebar, text="●  导入照片", bg="#3A83F0", fg="white", font=("Segoe UI", 10), padx=12, pady=9).pack(fill="x", padx=12)
-        tk.Label(sidebar, text="⚙  设置", bg="#1769E8", fg="#DDEAFF", font=("Segoe UI", 10), padx=12, pady=9).pack(fill="x", padx=12)
+        tk.Label(sidebar, text="工作区", bg="#1769E8", fg="#BFD7FF", font=self._font(10)).pack(anchor="w", padx=22, pady=(0, 10))
+        tk.Label(sidebar, text="●  导入照片", bg="#3A83F0", fg="white", font=self._font(10), padx=12, pady=9).pack(fill="x", padx=12)
+        tk.Label(sidebar, text="⚙  设置", bg="#1769E8", fg="#DDEAFF", font=self._font(10), padx=12, pady=9).pack(fill="x", padx=12)
         content = tk.Frame(self, bg="#F2F4F7")
         content.grid(row=0, column=1, rowspan=5, sticky="nsew")
         content.columnconfigure(0, weight=1)
@@ -132,7 +175,7 @@ class PhotoDock(tk.Tk):
         task.columnconfigure(0, weight=1)
         task.rowconfigure(1, weight=1)
         ttk.Progressbar(task, variable=self.progress_var, maximum=100).grid(row=0, column=0, sticky="ew", padx=14, pady=12)
-        self.log = tk.Text(task, height=12, state="disabled", wrap="word")
+        self.log = tk.Text(task, height=12, state="disabled", wrap="word", font=self._font(10), relief="flat", padx=8, pady=8)
         self.log.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         ttk.Label(content, text="PhotoDock 会记住你的设置。重复照片按内容指纹跳过。", foreground="#6B7280").grid(row=4, column=0, sticky="w", padx=28, pady=(0, 18))
 
@@ -169,9 +212,9 @@ class PhotoDock(tk.Tk):
         self.after(0, self.destroy)
 
     def _set_app_icon(self):
-        """Load the supplied multi-size ICO for the taskbar and window."""
+        """Use the supplied 32px ICO for the running window and taskbar."""
         root = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
-        self.iconbitmap(default=str(root / "assets" / "photodock.ico"))
+        self.wm_iconbitmap(default=str(root / "assets" / "photodock-32.ico"))
 
     def _first_run_setup(self):
         self._choose_source()
