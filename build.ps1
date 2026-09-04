@@ -1,4 +1,4 @@
-python -m pip install --upgrade pyinstaller pillow pystray
+python -m pip install --upgrade pyinstaller pillow pystray cairosvg
 python scripts\create_icon.py
 pyinstaller --noconfirm --onefile --windowed --icon assets\photodock.ico --name PhotoDock photodock.py
 
