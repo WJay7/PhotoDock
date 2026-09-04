@@ -38,9 +38,13 @@ class PhotoDock(tk.Tk):
         self.minsize(760, 520)
         self.configure(bg="#F2F4F7")
         self._set_pixel_icon()
+        self._tray = None
+        self._tray_thread = None
         self._single_instance = ctypes.windll.kernel32.CreateMutexW(None, True, "PhotoDock.SingleInstance") if os.name == "nt" else None
         if os.name == "nt" and ctypes.windll.kernel32.GetLastError() == 183:
-            self.destroy()
+            # A previous PhotoDock instance is already running. Do not touch
+            # tray resources here: the current instance has not initialized them.
+            self.quit()
             raise SystemExit
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -56,8 +60,6 @@ class PhotoDock(tk.Tk):
         self._load_config()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
-        self._tray = None
-        self._tray_thread = None
         if pystray is not None:
             self._start_tray()
         self.after(1000, self._poll_source)
