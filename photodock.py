@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import ctypes
 try:
     import pystray
     from PIL import Image, ImageDraw
@@ -37,6 +38,10 @@ class PhotoDock(tk.Tk):
         self.minsize(760, 520)
         self.configure(bg="#F2F4F7")
         self._set_pixel_icon()
+        self._single_instance = ctypes.windll.kernel32.CreateMutexW(None, True, "PhotoDock.SingleInstance") if os.name == "nt" else None
+        if os.name == "nt" and ctypes.windll.kernel32.GetLastError() == 183:
+            self.destroy()
+            raise SystemExit
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(DB_FILE, check_same_thread=False)
         self.db.execute("CREATE TABLE IF NOT EXISTS photos (hash TEXT PRIMARY KEY, path TEXT NOT NULL, imported_at TEXT NOT NULL)")
@@ -85,14 +90,27 @@ class PhotoDock(tk.Tk):
         style.map("TButton", background=[("active", "#0B54D6"), ("disabled", "#A9BFEF")])
         style.configure("TCheckbutton", background="#F2F4F7", foreground="#4B5563", font=("Segoe UI", 9))
         style.configure("Horizontal.TProgressbar", troughcolor="#DCE8FF", background="#1464F4", bordercolor="#DCE8FF", lightcolor="#1464F4", darkcolor="#1464F4")
-        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
         self.rowconfigure(3, weight=1)
-        heading = ttk.Frame(self)
-        heading.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 4))
-        ttk.Label(heading, text="PhotoDock", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(heading, text="让每一张照片，都自动回到正确的位置", style="Subheader.TLabel").pack(anchor="w", pady=(2, 0))
-        paths = ttk.LabelFrame(self, text=" 1  文件夹设置 ")
-        paths.grid(row=1, column=0, sticky="ew", padx=24, pady=8)
+        sidebar = tk.Frame(self, bg="#1769E8", width=190)
+        sidebar.grid(row=0, column=0, rowspan=5, sticky="nsew")
+        sidebar.grid_propagate(False)
+        tk.Label(sidebar, text="▣  PhotoDock", bg="#1769E8", fg="white", font=("Segoe UI", 18, "bold")).pack(anchor="w", padx=20, pady=(28, 6))
+        tk.Label(sidebar, text="照片自动导入", bg="#1769E8", fg="#DDEAFF", font=("Segoe UI", 10)).pack(anchor="w", padx=22)
+        tk.Frame(sidebar, bg="#4B91F5", height=1).pack(fill="x", padx=20, pady=24)
+        tk.Label(sidebar, text="工作区", bg="#1769E8", fg="#BFD7FF", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=22, pady=(0, 10))
+        tk.Label(sidebar, text="●  导入照片", bg="#3A83F0", fg="white", font=("Segoe UI", 10), padx=12, pady=9).pack(fill="x", padx=12)
+        tk.Label(sidebar, text="⚙  设置", bg="#1769E8", fg="#DDEAFF", font=("Segoe UI", 10), padx=12, pady=9).pack(fill="x", padx=12)
+        content = tk.Frame(self, bg="#F2F4F7")
+        content.grid(row=0, column=1, rowspan=5, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(3, weight=1)
+        heading = tk.Frame(content, bg="#F2F4F7")
+        heading.grid(row=0, column=0, sticky="ew", padx=28, pady=(24, 12))
+        ttk.Label(heading, text="导入照片", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(heading, text="连接设备后，PhotoDock 会自动整理新照片", style="Subheader.TLabel").pack(anchor="w", pady=(3, 0))
+        paths = ttk.LabelFrame(content, text=" 1  文件夹设置 ")
+        paths.grid(row=1, column=0, sticky="ew", padx=28, pady=8)
         paths.columnconfigure(1, weight=1)
         ttk.Label(paths, text="照片来源").grid(row=0, column=0, padx=10, pady=8)
         ttk.Entry(paths, textvariable=self.source_var).grid(row=0, column=1, sticky="ew", padx=5, pady=8)
@@ -100,20 +118,20 @@ class PhotoDock(tk.Tk):
         ttk.Label(paths, text="保存位置").grid(row=1, column=0, padx=10, pady=8)
         ttk.Entry(paths, textvariable=self.destination_var).grid(row=1, column=1, sticky="ew", padx=5, pady=8)
         ttk.Button(paths, text="选择…", command=self._choose_destination).grid(row=1, column=2, padx=10, pady=8)
-        controls = ttk.Frame(self)
-        controls.grid(row=2, column=0, sticky="ew", padx=24, pady=8)
+        controls = ttk.Frame(content)
+        controls.grid(row=2, column=0, sticky="ew", padx=28, pady=8)
         ttk.Button(controls, text="立即扫描并导入", command=self.start_import).pack(side="left")
         ttk.Checkbutton(controls, text="设备连接后自动导入", variable=self.auto_scan).pack(side="left", padx=18)
         ttk.Checkbutton(controls, text="按日期归档", variable=self.organize_by_date, command=self._save_config).pack(side="left", padx=4)
         ttk.Label(controls, textvariable=self.status_var).pack(side="right")
-        task = ttk.LabelFrame(self, text=" 2  导入任务 ")
-        task.grid(row=3, column=0, sticky="nsew", padx=24, pady=8)
+        task = ttk.LabelFrame(content, text=" 2  导入任务 ")
+        task.grid(row=3, column=0, sticky="nsew", padx=28, pady=8)
         task.columnconfigure(0, weight=1)
         task.rowconfigure(1, weight=1)
         ttk.Progressbar(task, variable=self.progress_var, maximum=100).grid(row=0, column=0, sticky="ew", padx=14, pady=12)
         self.log = tk.Text(task, height=12, state="disabled", wrap="word")
         self.log.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
-        ttk.Label(self, text="PhotoDock 会记住你的设置。重复照片按内容指纹跳过。", foreground="#6B7280").grid(row=4, column=0, sticky="w", padx=24, pady=(0, 18))
+        ttk.Label(content, text="PhotoDock 会记住你的设置。重复照片按内容指纹跳过。", foreground="#6B7280").grid(row=4, column=0, sticky="w", padx=28, pady=(0, 18))
 
     def _tray_image(self):
         image = Image.new("RGBA", (64, 64), "#1769E8")
@@ -215,10 +233,23 @@ class PhotoDock(tk.Tk):
             messagebox.showwarning("需要设置文件夹", "请先选择有效的照片来源和保存位置。")
             return
         destination.mkdir(parents=True, exist_ok=True)
+        self._index_destination(destination)
         self._save_config()
         self.running = True
         self.progress_var.set(0)
         threading.Thread(target=self._import_worker, args=(source, destination, self.organize_by_date.get()), daemon=True).start()
+
+    def _index_destination(self, destination):
+        """Index existing photos so a first import also detects duplicates."""
+        for path in destination.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in PHOTO_EXTENSIONS:
+                continue
+            try:
+                digest = sha256_file(path)
+                self.db.execute("INSERT OR REPLACE INTO photos(hash,path,imported_at) VALUES(?,?,?)", (digest, str(path), datetime.now().isoformat(timespec="seconds")))
+            except OSError:
+                continue
+        self.db.commit()
 
     def _import_worker(self, source, destination, organize_by_date):
         files = [p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
