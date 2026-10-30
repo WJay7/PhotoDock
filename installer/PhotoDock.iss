@@ -1,5 +1,5 @@
 #define MyAppName "PhotoDock"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.16"
 #define MyAppPublisher "WJay7"
 #define MyAppExeName "PhotoDock.exe"
 
