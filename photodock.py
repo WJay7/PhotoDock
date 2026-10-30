@@ -35,6 +35,37 @@ def sha256_file(path: Path, chunk_size=1024 * 1024):
     return digest.hexdigest()
 
 
+# FILE_ATTRIBUTE_OFFLINE / FILE_ATTRIBUTE_RECALL_ON_OPEN /
+# FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS.  Google Drive、OneDrive 等云盘客户端在
+# "释放空间"之后会把文件内容从本地删除，只留下带这些属性的占位文件。
+CLOUD_ONLY_ATTRIBUTES = 0x1000 | 0x40000 | 0x400000
+
+
+def file_attributes(path: Path):
+    if os.name != "nt":
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetFileAttributesW.restype = ctypes.c_uint32
+        attrs = kernel32.GetFileAttributesW(str(path))
+    except (AttributeError, OSError):
+        return None
+    if attrs == 0xFFFFFFFF:  # INVALID_FILE_ATTRIBUTES
+        return None
+    return attrs
+
+
+def is_cloud_placeholder(path: Path):
+    """True when the file only exists in the cloud.
+
+    Reading such a file forces the sync client to download the whole thing, so
+    the importer must never touch its content just to decide whether it is a
+    duplicate.
+    """
+    attrs = file_attributes(path)
+    return attrs is not None and bool(attrs & CLOUD_ONLY_ATTRIBUTES)
+
+
 class PhotoDock(tk.Tk):
     def __init__(self):
         # Windows decides the taskbar icon before Tk creates its top-level
@@ -63,7 +94,12 @@ class PhotoDock(tk.Tk):
             raise SystemExit
         APP_DIR.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(DB_FILE, check_same_thread=False)
-        self.db.execute("CREATE TABLE IF NOT EXISTS photos (hash TEXT PRIMARY KEY, path TEXT NOT NULL, imported_at TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS photos (hash TEXT PRIMARY KEY, path TEXT NOT NULL, imported_at TEXT NOT NULL, size INTEGER, mtime INTEGER)")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(photos)")}
+        for name in ("size", "mtime"):
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE photos ADD COLUMN {name} INTEGER")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos(path)")
         self.db.commit()
         self.running = False
         self.auto_scan = tk.BooleanVar(value=True)
@@ -253,11 +289,22 @@ class PhotoDock(tk.Tk):
     def start_import(self):
         if self.running:
             return
-        source, destination = Path(self.source_var.get()), Path(self.destination_var.get())
-        if not source.is_dir() or not destination:
+        source_text, destination_text = self.source_var.get().strip(), self.destination_var.get().strip()
+        if not source_text or not destination_text:
             messagebox.showwarning("需要设置文件夹", "请先选择有效的照片来源和保存位置。")
             return
-        destination.mkdir(parents=True, exist_ok=True)
+        source, destination = Path(source_text), Path(destination_text)
+        if not source.is_dir():
+            messagebox.showwarning("需要设置文件夹", "照片来源文件夹不存在或不可访问。")
+            return
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror(
+                "保存位置不可用",
+                f"无法访问保存位置：{destination}\n{exc}\n\n如果保存位置在云盘上，请先启动云盘客户端再重试。",
+            )
+            return
         self._index_destination(destination)
         self._save_config()
         self.running = True
@@ -265,16 +312,43 @@ class PhotoDock(tk.Tk):
         threading.Thread(target=self._import_worker, args=(source, destination, self.organize_by_date.get()), daemon=True).start()
 
     def _index_destination(self, destination):
-        """Index existing photos so a first import also detects duplicates."""
+        """Index photos that already live in the destination folder.
+
+        Hashing a file forces a cloud drive to recall its content.  Re-hashing
+        the whole destination on every import is exactly what makes Google
+        Drive download every photo again after it freed up local space, so a
+        known photo is recognised by its recorded size and left untouched.
+        """
+        known = {row[0]: row[1] for row in self.db.execute("SELECT path, size FROM photos")}
+        cached = indexed = offline = 0
         for path in destination.rglob("*"):
-            if not path.is_file() or path.suffix.lower() not in PHOTO_EXTENSIONS:
-                continue
             try:
-                digest = sha256_file(path)
-                self.db.execute("INSERT OR REPLACE INTO photos(hash,path,imported_at) VALUES(?,?,?)", (digest, str(path), datetime.now().isoformat(timespec="seconds")))
+                if not path.is_file() or path.suffix.lower() not in PHOTO_EXTENSIONS:
+                    continue
+                signature = path.stat()
             except OSError:
                 continue
+            key = str(path)
+            size = signature.st_size
+            if key in known and (known[key] is None or known[key] == size):
+                # Already indexed: refresh the cheap metadata, never read content.
+                self.db.execute("UPDATE photos SET size=?, mtime=? WHERE path=?", (size, int(signature.st_mtime), key))
+                known[key] = size
+                cached += 1
+                continue
+            if is_cloud_placeholder(path):
+                offline += 1
+            try:
+                digest = sha256_file(path)
+            except OSError:
+                continue
+            self.db.execute(
+                "INSERT OR REPLACE INTO photos(hash,path,imported_at,size,mtime) VALUES(?,?,?,?,?)",
+                (digest, key, datetime.now().isoformat(timespec="seconds"), size, int(signature.st_mtime)),
+            )
+            indexed += 1
         self.db.commit()
+        self._ui(lambda c=cached, i=indexed, o=offline: self._write_log(f"索引检查：已知 {c} 张，新增 {i} 张，云端占位 {o} 张（占位文件不读取内容）"))
 
     def _import_worker(self, source, destination, organize_by_date):
         files = [p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
@@ -282,16 +356,18 @@ class PhotoDock(tk.Tk):
         imported = skipped = failed = 0
         for index, source_file in enumerate(files, 1):
             try:
-                if source_file.stat().st_size == 0:
+                source_stat = source_file.stat()
+                if source_stat.st_size == 0:
                     continue
                 digest = sha256_file(source_file)
                 record = self.db.execute("SELECT path FROM photos WHERE hash=?", (digest,)).fetchone()
-                destination_file_exists = record and Path(record[0]).is_file()
-                if destination_file_exists:
+                # A cloud placeholder still holds the photo, so treat it as
+                # present instead of copying the file again.
+                if record and Path(record[0]).is_file():
                     skipped += 1
                 else:
                     if organize_by_date:
-                        day = datetime.fromtimestamp(source_file.stat().st_mtime)
+                        day = datetime.fromtimestamp(source_stat.st_mtime)
                         folder = destination / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
                     else:
                         folder = destination
@@ -305,7 +381,10 @@ class PhotoDock(tk.Tk):
                         temp.unlink(missing_ok=True)
                         raise IOError("复制校验失败")
                     temp.replace(target)
-                    self.db.execute("INSERT OR REPLACE INTO photos(hash,path,imported_at) VALUES(?,?,?)", (digest, str(target), datetime.now().isoformat(timespec="seconds")))
+                    self.db.execute(
+                        "INSERT OR REPLACE INTO photos(hash,path,imported_at,size,mtime) VALUES(?,?,?,?,?)",
+                        (digest, str(target), datetime.now().isoformat(timespec="seconds"), source_stat.st_size, int(source_stat.st_mtime)),
+                    )
                     self.db.commit()
                     imported += 1
                     if record:
