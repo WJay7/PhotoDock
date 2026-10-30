@@ -27,6 +27,25 @@ FONT_FAMILY = "MiSans ExtraLight"
 FONT_FALLBACK = "Microsoft YaHei UI"
 
 
+# 系统生成的元数据文件，永远不可能是照片。
+JUNK_FILE_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
+JUNK_DIR_NAMES = {"__macosx"}
+
+
+def is_junk_file(path: Path):
+    """macOS / Windows sidecar files that only look like photos.
+
+    On exFAT and FAT cards macOS writes an AppleDouble resource fork next to
+    every photo (``._IMG_1234.JPG``).  It carries no image data, so copying it
+    just leaves unopenable "photos" in the library and on the cloud drive.
+    """
+    if path.name.startswith("._"):
+        return True
+    if path.name.lower() in JUNK_FILE_NAMES:
+        return True
+    return any(part.lower() in JUNK_DIR_NAMES for part in path.parts)
+
+
 def sha256_file(path: Path, chunk_size=1024 * 1024):
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -320,15 +339,27 @@ class PhotoDock(tk.Tk):
         known photo is recognised by its recorded size and left untouched.
         """
         known = {row[0]: row[1] for row in self.db.execute("SELECT path, size FROM photos")}
-        cached = indexed = offline = 0
+        cached = indexed = offline = purged = 0
         for path in destination.rglob("*"):
             try:
-                if not path.is_file() or path.suffix.lower() not in PHOTO_EXTENSIONS:
+                if not path.is_file():
                     continue
                 signature = path.stat()
             except OSError:
                 continue
             key = str(path)
+            # 旧版本把 ._xxx.JPG 之类资源分叉文件当真照片拷了进来，这里顺手清掉。
+            if is_junk_file(path) and path.suffix.lower() in PHOTO_EXTENSIONS:
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    self._ui(lambda p=key, e=str(exc): self._write_log(f"无法删除系统文件：{p}（{e}）"))
+                    continue
+                self.db.execute("DELETE FROM photos WHERE path=?", (key,))
+                purged += 1
+                continue
+            if is_junk_file(path) or path.suffix.lower() not in PHOTO_EXTENSIONS:
+                continue
             size = signature.st_size
             if key in known and (known[key] is None or known[key] == size):
                 # Already indexed: refresh the cheap metadata, never read content.
@@ -348,11 +379,18 @@ class PhotoDock(tk.Tk):
             )
             indexed += 1
         self.db.commit()
-        self._ui(lambda c=cached, i=indexed, o=offline: self._write_log(f"索引检查：已知 {c} 张，新增 {i} 张，云端占位 {o} 张（占位文件不读取内容）"))
+        self._ui(lambda c=cached, i=indexed, o=offline, p=purged: self._write_log(
+            f"索引检查：已知 {c} 张，新增 {i} 张，云端占位 {o} 张（占位文件不读取内容）"
+            + (f"，清理系统附带文件 {p} 个" if p else "")))
 
     def _import_worker(self, source, destination, organize_by_date):
-        files = [p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
-        self._ui(lambda: self.status_var.set(f"扫描到 {len(files)} 张照片"))
+        candidates = [p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
+        files = [p for p in candidates if not is_junk_file(p)]
+        ignored = len(candidates) - len(files)
+        message = f"扫描到 {len(files)} 张照片"
+        if ignored:
+            message += f"，忽略 {ignored} 个系统附带文件"
+        self._ui(lambda text=message: self.status_var.set(text))
         imported = skipped = failed = 0
         for index, source_file in enumerate(files, 1):
             try:
